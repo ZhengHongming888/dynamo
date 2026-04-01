@@ -51,6 +51,7 @@ class MultimodalPDWorkerHandler(BaseWorkerHandler[dict, dict]):
         decode_worker_client: Optional[Client] = None,
         shutdown_event=None,
         generate_endpoint=None,
+        encoder_device_mapping: Optional[dict] = None,
     ):
         # Get default_sampling_params from config
         default_sampling_params = (
@@ -106,6 +107,7 @@ class MultimodalPDWorkerHandler(BaseWorkerHandler[dict, dict]):
             encode_worker_client=self.encode_worker_client,  # type: ignore
             receiver=self.embedding_receiver,
             embedding_cache_manager=self.embedding_cache_manager,
+            encoder_device_mapping=encoder_device_mapping if encoder_device_mapping else {},
         )
 
         logger.info("Multimodal PD Worker has been initialized")
