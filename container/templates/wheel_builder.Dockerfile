@@ -507,6 +507,11 @@ RUN --mount=type=secret,id=aws-key-id,env=AWS_ACCESS_KEY_ID \
         PKG_NAME="nixl-${DEVICE}"; \
     fi && \
     ./contrib/tomlutil.py --wheel-name $PKG_NAME pyproject.toml && \
+    if [ "$DEVICE" != "cuda" ]; then \
+        sed -i "s/cuda_wheel_dir = 'nixl_cu12'/cuda_wheel_dir = '${PKG_NAME//-/_}'/" meson.build; \
+        sed -i 's/candidates = \["nixl_cu13", "nixl_cu12"\]/candidates = ["nixl_cu13", "nixl_cu12", "nixl_cpu", "nixl_xpu"]/' src/bindings/python/nixl-meta/nixl/__init__.py; \
+        sed -i 's/Could not find CUDA-specific NIXL package/Could not find NIXL package/' src/bindings/python/nixl-meta/nixl/__init__.py; \
+    fi && \
     mkdir build && \
     if [ "$DEVICE" = "cuda" ]; then \
         meson setup build/ --prefix=/opt/nvidia/nvda_nixl --buildtype=release \
@@ -548,7 +553,7 @@ RUN echo "$NIXL_LIB_DIR" > /etc/ld.so.conf.d/nixl.conf && \
     echo "$NIXL_PLUGIN_DIR" >> /etc/ld.so.conf.d/nixl.conf && \
     ldconfig
 
-# Build NIXL wheel → /opt/dynamo/dist/nixl/nixl*.whl (C++ transport library, all targets)
+# Build NIXL wheels → /opt/dynamo/dist/nixl/nixl*.whl (C++ transport library + meta package, all targets)
 ARG PYTHON_VERSION
 RUN --mount=type=secret,id=aws-key-id,env=AWS_ACCESS_KEY_ID \
     --mount=type=secret,id=aws-secret-id,env=AWS_SECRET_ACCESS_KEY \
@@ -559,6 +564,8 @@ RUN --mount=type=secret,id=aws-key-id,env=AWS_ACCESS_KEY_ID \
         eval $(/tmp/use-sccache.sh setup-env); \
     fi && \
     cd /workspace/nixl && \
+    uv build . --wheel --out-dir /opt/dynamo/dist/nixl --python $PYTHON_VERSION && \
+    cd src/bindings/python/nixl-meta && \
     uv build . --wheel --out-dir /opt/dynamo/dist/nixl --python $PYTHON_VERSION
 
 {% if target not in ("dev", "local-dev") %}

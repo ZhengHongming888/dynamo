@@ -253,8 +253,8 @@ COPY --chown=dynamo: --from=wheel_builder $NIXL_PREFIX $NIXL_PREFIX
 COPY --chown=dynamo: --from=wheel_builder /opt/intel/intel_nixl/lib/x86_64-linux-gnu/. ${NIXL_LIB_DIR}/
 {% endif %}
 {# For cpu/cuda: NIXL libs are already included in the $NIXL_PREFIX COPY above #}
+{# Copy both device-specific wheel (nixl_cpu/nixl_cu12/etc) and meta package wheel (nixl) #}
 COPY --chown=dynamo: --from=wheel_builder /opt/dynamo/dist/nixl/ /opt/dynamo/wheelhouse/nixl/
-COPY --chown=dynamo: --from=wheel_builder /workspace/nixl/build/src/bindings/python/nixl-meta/nixl-*.whl /opt/dynamo/wheelhouse/nixl/
 
 
 ENV PATH=/usr/local/ucx/bin:$PATH

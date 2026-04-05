@@ -204,6 +204,13 @@ if [ "$DEVICE" = "cpu" ]; then
     uv pip install -r requirements/cpu-build.txt --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
     uv pip install torchvision torchaudio --constraint requirements/cpu-build.txt --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
 
+    # Apply L2 cache fix patch for CPU builds
+    # Workaround for missing at::cpu::L2_cache_size() in PyTorch 2.10+ CPU builds
+    if [ -f /tmp/deps/vllm/cpu_l2_cache_fix.patch ]; then
+        echo "Applying CPU L2 cache fix patch..."
+        git apply --ignore-whitespace /tmp/deps/vllm/cpu_l2_cache_fix.patch
+    fi
+
     # Workaround GCC 13 ICE in oneDNN ref_rnn.cpp:
     # The stdarg GIMPLE pass + remove_unused_locals() crashes at -O3 on complex
     # std::function lambda instantiations. -O2 avoids the code path that segfaults.

@@ -1,0 +1,15 @@
+--- a/csrc/cpu/utils.hpp
++++ b/csrc/cpu/utils.hpp
+@@ -55,7 +55,11 @@ class UniqueCounter {
+
+ inline int64_t get_available_l2_size() {
+   static int64_t size = []() {
+-    const uint32_t l2_cache_size = at::cpu::L2_cache_size();
++    // Use a conservative default L2 cache size of 1MB per core
++    // The at::cpu::L2_cache_size() function is not available in all PyTorch versions
++    // This default works well for most modern x86_64 CPUs where L2 cache per core
++    // is typically between 256KB-2MB
++    const uint32_t l2_cache_size = 1024 * 1024; // 1MB
+     return l2_cache_size >> 1;  // use 50% of L2 cache
+   }();
+   return size;
