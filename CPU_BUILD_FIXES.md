@@ -87,13 +87,66 @@ After these changes, the CPU build produces two wheels in `/opt/dynamo/dist/nixl
 3. `container/deps/vllm/install_vllm.sh` - vLLM CPU build with L2 cache patch
 4. `container/deps/vllm/cpu_l2_cache_fix.patch` - Workaround for missing PyTorch API
 
-## Testing Required
+## Testing Progress
 
-- Build CPU docker image: `make build-cpu` or similar
-- Run dynamo vLLM with CPU device
-- Test prefill/decode disaggregation with pure CPU setup
-- Verify NIXL imports work correctly: `python -c "from nixl._api import nixl_agent; print('OK')"`
-- Verify vLLM starts without L2 cache errors
+### Build Commands
+
+```bash
+# Render Dockerfile for CPU runtime
+python container/render.py --framework vllm --device cpu --target runtime \
+  --platform linux/amd64 --output-short-filename
+
+# Build with proxy settings (if behind corporate firewall)
+docker build --no-cache --target runtime --platform linux/amd64 \
+  --build-arg DEVICE=cpu \
+  --build-arg PYTHON_VERSION=3.12 \
+  --build-arg TARGETARCH=amd64 \
+  --build-arg http_proxy=http://proxy.ims.intel.com:911 \
+  --build-arg https_proxy=http://proxy.ims.intel.com:911 \
+  --build-arg no_proxy=localhost,127.0.0.1,0.0.0.0 \
+  --network=host \
+  -t dynamo:cpu-vllm-runtime-new \
+  -f container/rendered.Dockerfile .
+```
+
+### Test Results
+
+✅ **wheel_builder stage**: Completed successfully
+- UCX built for CPU (without CUDA)
+- NIXL C++ library compiled with optimization=2
+- NIXL CPU wheel (`nixl_cpu-0.10.1-cp312-cp312-linux_x86_64.whl`) generated
+- NIXL meta package wheel (`nixl-0.10.1-py3-none-any.whl`) generated with CPU/XPU support
+
+✅ **NIXL Meta Package Verification** (in existing image):
+```bash
+docker run --rm dynamo:cpu-vllm-runtime python -c \
+  "from nixl._api import nixl_agent; print('✓ NIXL import successful')"
+# Output: ✓ NIXL import successful
+```
+
+✅ **Meta Package Code Verification**:
+```python
+# In /opt/dynamo/venv/lib/python3.12/site-packages/nixl/__init__.py
+candidates = ["nixl_cu13", "nixl_cu12", "nixl_cpu", "nixl_xpu"]
+```
+
+⚠️ **Known Issue in Old Build**: 
+- Old image has both `nixl_cpu` AND `nixl_cu12` installed
+- System loads `nixl_cu12` first (but falls back to `nixl_cpu` if CUDA not available)
+- Clean rebuild in progress to ensure only `nixl_cpu` is installed
+
+🔄 **Current Build**: Clean build with --no-cache in progress
+- Ensures no CUDA dependencies are pulled
+- Framework stage will build vLLM with L2 cache patch applied
+- Expected completion: ~30-60 minutes
+
+### Pending Tests
+
+- [ ] Verify only `nixl_cpu` is installed in clean build (no `nixl_cu12`)
+- [ ] Run dynamo vLLM with CPU device
+- [ ] Test prefill/decode disaggregation with pure CPU setup
+- [ ] Verify vLLM starts without L2 cache errors
+- [ ] Test end-to-end inference with CPU
 
 ## Related Issues
 

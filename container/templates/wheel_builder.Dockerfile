@@ -565,7 +565,7 @@ RUN --mount=type=secret,id=aws-key-id,env=AWS_ACCESS_KEY_ID \
     fi && \
     cd /workspace/nixl && \
     uv build . --wheel --out-dir /opt/dynamo/dist/nixl --python $PYTHON_VERSION && \
-    cd src/bindings/python/nixl-meta && \
+    cd build/src/bindings/python/nixl-meta && \
     uv build . --wheel --out-dir /opt/dynamo/dist/nixl --python $PYTHON_VERSION
 
 {% if target not in ("dev", "local-dev") %}
