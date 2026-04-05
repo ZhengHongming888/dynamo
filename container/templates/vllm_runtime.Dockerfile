@@ -302,7 +302,7 @@ RUN --mount=type=cache,target=/home/dynamo/.cache/uv,uid=1000,gid=0,mode=0775 \
             echo "ERROR: ENABLE_KVBM is true but no KVBM wheel found in wheelhouse" >&2; \
             exit 1; \
         fi; \
-        uv pip install "$KVBM_WHEEL"; \
+        uv pip install --no-deps "$KVBM_WHEEL"; \
     fi && \
     cd /workspace/benchmarks && \
     export UV_GIT_LFS=1 UV_HTTP_TIMEOUT=300 UV_HTTP_RETRIES=5 && \
