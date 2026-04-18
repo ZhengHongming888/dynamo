@@ -15,6 +15,8 @@
 set -e
 trap 'echo Cleaning up...; kill 0' EXIT
 
+export DYN_LOG=debug
+
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "$SCRIPT_DIR/../../../../common/launch_utils.sh"
 
@@ -33,9 +35,9 @@ if [[ -z "${DEVICE_AFFINITY_ENV:-}" ]]; then
     fi
 fi
 
-# CUDA to CPU throughput ratio for device-aware routing (default: 8)
+# XPU/GPU to CPU throughput ratio for device-aware routing (default: 8)
 # Higher values give more weight to GPU/XPU workers
-export DYN_ENCODER_CUDA_TO_CPU_RATIO="${DYN_ENCODER_CUDA_TO_CPU_RATIO:-8}"
+export DYN_ENCODER_XPU_TO_CPU_RATIO="${DYN_ENCODER_XPU_TO_CPU_RATIO:-8}"
 
 # CPU NUMA binding configuration
 # Format: "core_range1|core_range2|core_range3|..."
@@ -182,7 +184,7 @@ else
 fi
 
 VLLM_CPU_SGL_KERNEL="${VLLM_CPU_SGL_KERNEL:-0}"
-VLLM_CPU_KVCACHE_SPACE="${VLLM_CPU_KVCACHE_SPACE:-40}"
+VLLM_CPU_KVCACHE_SPACE="${VLLM_CPU_KVCACHE_SPACE:-20}"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -196,7 +198,11 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --cuda-to-cpu-ratio)
-            DYN_ENCODER_CUDA_TO_CPU_RATIO=$2
+            DYN_ENCODER_XPU_TO_CPU_RATIO=$2
+            shift 2
+            ;;
+        --xpu-to-cpu-ratio)
+            DYN_ENCODER_XPU_TO_CPU_RATIO=$2
             shift 2
             ;;
         --cpu-bind)
@@ -212,7 +218,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --model <model_name>          Specify the VLM model to use (default: $MODEL_NAME)"
             echo "                                LLaVA 1.5 7B, Qwen2.5-VL, and Phi3V models are supported"
             echo "  --num-workers <N>             Number of CPU encode workers to launch (default: $NUM_ENCODE_WORKERS)"
-            echo "  --cuda-to-cpu-ratio <ratio>   GPU-to-CPU throughput ratio for routing (default: $DYN_ENCODER_CUDA_TO_CPU_RATIO)"
+            echo "  --xpu-to-cpu-ratio <ratio>    XPU/GPU-to-CPU throughput ratio for routing (default: $DYN_ENCODER_XPU_TO_CPU_RATIO)"
+            echo "  --cuda-to-cpu-ratio <ratio>   (Deprecated, use --xpu-to-cpu-ratio)"
             echo "  --cpu-bind <bindings>         NUMA CPU core bindings per worker (e.g., \"0-30|32-62|64-94\")"
             echo "  -h, --help                    Show this help message"
             echo ""
@@ -236,7 +243,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Environment Variables:"
             echo "  DEVICE_PLATFORM               - Device type: cuda or xpu (default: xpu)"
-            echo "  DYN_ENCODER_CUDA_TO_CPU_RATIO - GPU-to-CPU throughput ratio (default: 8)"
+            echo "  DYN_ENCODER_XPU_TO_CPU_RATIO  - XPU/GPU-to-CPU throughput ratio (default: 8)"
             echo "  DYN_HTTP_PORT                 - Frontend HTTP port (default: 8000)"
             echo "  NUM_ENCODE_WORKERS            - Number of CPU workers (default: 1)"
             echo "  VLLM_CPU_OMP_THREADS_BIND     - NUMA CPU core bindings (auto-detected if not set)"
@@ -283,7 +290,7 @@ echo "  Device Platform: $DEVICE_PLATFORM"
 echo "  Affinity Env: $DEVICE_AFFINITY_ENV"
 echo "  Model: $MODEL_NAME"
 echo "  CPU Encode Workers: $NUM_ENCODE_WORKERS"
-echo "  CUDA-to-CPU Ratio: $DYN_ENCODER_CUDA_TO_CPU_RATIO"
+echo "  XPU-to-CPU Ratio: $DYN_ENCODER_XPU_TO_CPU_RATIO"
 echo "  Router Mode: device-aware-weighted"
 if [[ ${#CPU_BINDINGS[@]} -gt 0 ]]; then
     echo "  CPU NUMA Bindings: ${VLLM_CPU_OMP_THREADS_BIND}"
@@ -324,6 +331,7 @@ for i in $(seq 0 $((NUM_ENCODE_WORKERS - 1))); do
     if [[ -n "$WORKER_CPU_BIND" ]]; then
         echo "  Setting VLLM_CPU_OMP_THREADS_BIND=$WORKER_CPU_BIND and $DEVICE_AFFINITY_ENV= (empty for CPU)"
         env "$DEVICE_AFFINITY_ENV=" \
+            UCX_LOG_LEVEL=INFO \
             VLLM_NIXL_SIDE_CHANNEL_PORT=$NIXL_PORT \
             VLLM_CPU_SGL_KERNEL=$VLLM_CPU_SGL_KERNEL \
             VLLM_CPU_KVCACHE_SPACE=$VLLM_CPU_KVCACHE_SPACE \
@@ -338,6 +346,7 @@ for i in $(seq 0 $((NUM_ENCODE_WORKERS - 1))); do
     else
         echo "  Setting $DEVICE_AFFINITY_ENV= (empty for CPU)"
         env "$DEVICE_AFFINITY_ENV=" \
+            UCX_LOG_LEVEL=INFO \
             VLLM_NIXL_SIDE_CHANNEL_PORT=$NIXL_PORT \
             VLLM_CPU_SGL_KERNEL=$VLLM_CPU_SGL_KERNEL \
             VLLM_CPU_KVCACHE_SPACE=$VLLM_CPU_KVCACHE_SPACE \
@@ -361,7 +370,7 @@ echo "Device-aware routing is enabled:"
 echo "  - CPU workers detected via $DEVICE_AFFINITY_ENV=\"\""
 echo "  - If GPU/XPU workers are also running, load will be"
 echo "    balanced based on device capabilities"
-echo "  - GPU/XPU workers get ${DYN_ENCODER_CUDA_TO_CPU_RATIO}x weight vs CPU"
+echo "  - GPU/XPU workers get ${DYN_ENCODER_XPU_TO_CPU_RATIO}x weight vs CPU"
 echo "=================================================="
 
 # Exit on first worker failure; kill 0 in the EXIT trap tears down the rest

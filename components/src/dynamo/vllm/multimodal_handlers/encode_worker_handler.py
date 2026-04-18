@@ -290,7 +290,11 @@ class EncodeWorkerHandler:
 
             before_transfer_time = time.perf_counter()
 
-            with _nvtx.annotate("mm:enc:embedding_transfer", color="purple"):
+            with _nvtx.annotate(
+                "mm:enc:embedding_transfer", color="purple"
+            ), time_and_log_code_section(
+                f"[ENCODE] request: {request_id} embedding transfer"
+            ):
                 # Prepare transfer
                 send_tasks = [
                     asyncio.create_task(
@@ -303,26 +307,26 @@ class EncodeWorkerHandler:
                 ]
                 transfer_requests = await asyncio.gather(*send_tasks)
 
-                after_transfer_time = time.perf_counter()
+            after_transfer_time = time.perf_counter()
 
-                for idx, item in enumerate(zip(embedding_lists, transfer_requests)):
-                    embedding_item, transfer_request = item
-                    assert embedding_item is not None
-                    logger.debug(
-                        f"{embedding_item.embeddings.shape} prepared for transfer."
-                    )
-                    # Update request for transfer metadata
-                    group = request.multimodal_inputs[idx]
-                    assert group.multimodal_input is not None
-                    group.multimodal_input.image_url = None
-                    group.image_grid_thw = embedding_item.image_grid_thw
-                    group.embeddings_shape = tuple(embedding_item.embeddings.shape)  # type: ignore[assignment]
-                    group.serialized_request = transfer_request[0]
+            for idx, item in enumerate(zip(embedding_lists, transfer_requests)):
+                embedding_item, transfer_request = item
+                assert embedding_item is not None
+                logger.debug(
+                    f"{embedding_item.embeddings.shape} prepared for transfer."
+                )
+                # Update request for transfer metadata
+                group = request.multimodal_inputs[idx]
+                assert group.multimodal_input is not None
+                group.multimodal_input.image_url = None
+                group.image_grid_thw = embedding_item.image_grid_thw
+                group.embeddings_shape = tuple(embedding_item.embeddings.shape)  # type: ignore[assignment]
+                group.serialized_request = transfer_request[0]
 
-                    # Keep a reference of the embedding and only drop reference when the transfer is done
-                    self.send_complete_queue.put_nowait(
-                        (transfer_request[1], embedding_item.embeddings)
-                    )
+                # Keep a reference of the embedding and only drop reference when the transfer is done
+                self.send_complete_queue.put_nowait(
+                    (transfer_request[1], embedding_item.embeddings)
+                )
 
             logger.debug(f"Request: {request.model_dump_json()}")
 

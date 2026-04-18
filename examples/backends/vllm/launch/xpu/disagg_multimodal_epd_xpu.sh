@@ -5,8 +5,8 @@ set -e
 trap 'echo Cleaning up...; kill 0' EXIT
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-source "$SCRIPT_DIR/../../../common/gpu_utils.sh"
-source "$SCRIPT_DIR/../../../common/launch_utils.sh"
+source "$SCRIPT_DIR/../../../../common/gpu_utils.sh"
+source "$SCRIPT_DIR/../../../../common/launch_utils.sh"
 
 # Default values
 MODEL_NAME="llava-hf/llava-1.5-7b-hf"
@@ -79,10 +79,14 @@ fi
 print_launch_banner --multimodal "Launching Disaggregated Multimodal E/P/D ($GPU_LABEL)" "$MODEL_NAME" "$HTTP_PORT"
 
 
-# Start frontend (no router mode)
-echo "Starting frontend..."
-# dynamo.frontend accepts either --http-port flag or DYN_HTTP_PORT env var (defaults to 8000)
-python -m dynamo.frontend &
+# Start frontend (no router mode) unless DYN_SKIP_FRONTEND is set
+if [[ "${DYN_SKIP_FRONTEND:-}" != "1" ]]; then
+    echo "Starting frontend..."
+    # dynamo.frontend accepts either --http-port flag or DYN_HTTP_PORT env var (defaults to 8000)
+    python -m dynamo.frontend &
+else
+    echo "Skipping frontend startup (DYN_SKIP_FRONTEND=1)"
+fi
 
 EXTRA_ARGS=""
 PD_EXTRA_ARGS=""

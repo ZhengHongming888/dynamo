@@ -20,7 +20,9 @@ INPUT_LEN=128
 OUTPUT_LEN=128
 NUM_IMAGES=8
 IMAGE_RESOLUTION="(640, 480, 1)"
-REQUEST_RATES=(0.2 0.5 0.8 1.0 1.2 1.5 2.0)
+#REQUEST_RATES=(0.2 0.5 0.8 1.0 1.2 1.5 2.0)
+#REQUEST_RATES=(0.5 0.8 1.0 1.2 1.5 2.0)
+REQUEST_RATES=(1.0 2.0)
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 OUTPUT_BASE_DIR="/workspace/benchmark_DAR_XPU_EPD_${TIMESTAMP}"
@@ -137,6 +139,7 @@ echo "  Decode Worker: GPU $DYN_DECODE_WORKER_GPU"
 echo "  Router Mode: device-aware-weighted"
 echo "  XPU to CPU Encoder Ratio: 8:1"
 
+DYN_SKIP_FRONTEND=1 \
 DYN_ROUTER_MODE='device-aware-weighted' \
 DYN_ENCODER_XPU_TO_CPU_RATIO=8 \
 DYN_ENCODE_WORKER_GPU=0 \
