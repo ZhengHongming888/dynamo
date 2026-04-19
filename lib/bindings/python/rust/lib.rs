@@ -27,7 +27,7 @@ use dynamo_runtime::config::environment_names::logging::otlp as env_otlp;
 use dynamo_runtime::{
     self as rs, logging,
     pipeline::{
-        AsyncEngineContextProvider, EngineStream, ManyOut, SingleIn, context::Context as RsContext,
+        AsyncEngine, AsyncEngineContextProvider, EngineStream, ManyOut, SingleIn, context::Context as RsContext,
         network::egress::push_router::RouterMode as RsRouterMode,
     },
     protocols::annotated::Annotated as RsAnnotated,
@@ -974,7 +974,7 @@ impl Client {
         })
     }
 
-    /// Issue a request to the endpoint using the default routing strategy.
+    /// Issue a request to the endpoint using the configured routing strategy.
     #[pyo3(signature = (request, annotated=DEFAULT_ANNOTATED_SETTING, context=None))]
     fn generate<'p>(
         &self,
@@ -983,7 +983,29 @@ impl Client {
         annotated: Option<bool>,
         context: Option<context::Context>,
     ) -> PyResult<Bound<'p, PyAny>> {
-        self.random(py, request, annotated, context)
+        let request: serde_json::Value = pythonize::depythonize(&request.into_bound(py))?;
+        let request_ctx = create_request_context(request, &context);
+        let annotated = annotated.unwrap_or(false);
+
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+        let client = self.router.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let stream = match context {
+                Some(context) => {
+                    // Always instrument with appropriate span (none if no trace context)
+                    let span = get_span_for_context(&context, "generate");
+                    client
+                        .generate(request_ctx)
+                        .instrument(span)
+                        .await
+                        .map_err(to_pyerr)?
+                }
+                _ => client.generate(request_ctx).await.map_err(to_pyerr)?,
+            };
+            tokio::spawn(process_stream(stream, tx));
+            Ok(AsyncResponseStream::new(rx, annotated))
+        })
     }
 
     /// Send a request to the next endpoint in a round-robin fashion.

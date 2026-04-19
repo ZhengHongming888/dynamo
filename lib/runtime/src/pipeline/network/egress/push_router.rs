@@ -214,12 +214,30 @@ fn device_aware_candidate_group(
     }
 
     // Both classes exist: compute a budget for CPU in-flight requests.
+    //
+    // Goal: maintain ratio of non_cpu_to_cpu_ratio:1 between XPU and CPU throughput.
+    // Simplified formula: allow CPU requests when cpu_inflight < xpu_inflight / ratio
+    //
+    // Example with ratio=50:
+    //   - First 50 requests: xpu_inflight=0→50, cpu_inflight=0, allowed=0→1
+    //     → Routes to XPU (builds up XPU load)
+    //   - Request 51: xpu_inflight=50, cpu_inflight=0, allowed=1
+    //     → Routes to CPU (0 < 1)
+    //   - Request 52: xpu_inflight=50, cpu_inflight=1, allowed=1
+    //     → Routes to XPU (1 >= 1)
+    //   Result: ~2% CPU, ~98% XPU (50:1 ratio)
     let total_non_cpu_inflight: u64 = non_cpu_ids.iter().map(|id| state.load(*id)).sum();
     let total_cpu_inflight: u64 = cpu_ids.iter().map(|id| state.load(*id)).sum();
-    let cpu_count = cpu_ids.len() as u64;
-    let non_cpu_count = non_cpu_ids.len() as u64;
-    let allowed_cpu_inflight = total_non_cpu_inflight.saturating_mul(cpu_count)
-        / ((non_cpu_to_cpu_ratio as u64).saturating_mul(non_cpu_count));
+    let allowed_cpu_inflight = total_non_cpu_inflight / (non_cpu_to_cpu_ratio as u64);
+
+    tracing::debug!(
+        xpu_inflight = total_non_cpu_inflight,
+        cpu_inflight = total_cpu_inflight,
+        allowed_cpu = allowed_cpu_inflight,
+        ratio = non_cpu_to_cpu_ratio,
+        decision = if total_cpu_inflight < allowed_cpu_inflight { "CPU" } else { "XPU" },
+        "device_aware_routing: routing decision"
+    );
 
     if total_cpu_inflight < allowed_cpu_inflight {
         cpu_ids

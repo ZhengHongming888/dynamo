@@ -175,16 +175,18 @@ async def _fetch_from_encode_workers(
             if len(batch) >= encode_batch_size:
                 encode_request.multimodal_inputs = batch
                 payload = encode_request.model_dump_json()
+                # Use generate() which respects the router mode set at client creation
                 encode_response_streams.append(
-                    await encode_worker_client.round_robin(payload, context=context)  # type: ignore[arg-type]
+                    await encode_worker_client.generate(payload, context=context)  # type: ignore[arg-type]
                 )
                 batch = []
 
         if batch:
             encode_request.multimodal_inputs = batch
             payload = encode_request.model_dump_json()
+            # Use generate() which respects the router mode set at client creation
             encode_response_streams.append(
-                await encode_worker_client.round_robin(payload, context=context)  # type: ignore[arg-type]
+                await encode_worker_client.generate(payload, context=context)  # type: ignore[arg-type]
             )
 
     with time_and_log_code_section(

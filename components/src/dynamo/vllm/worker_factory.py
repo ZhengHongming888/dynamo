@@ -18,7 +18,7 @@ from vllm.v1.engine.async_llm import AsyncLLM
 from dynamo import prometheus_names
 from dynamo.common.utils.endpoint_types import parse_endpoint_types
 from dynamo.common.utils.prometheus import LLMBackendMetrics
-from dynamo.llm import ModelInput, ModelType
+from dynamo.llm import ModelInput, ModelType, RouterMode
 from dynamo.runtime import DistributedRuntime
 
 from .args import Config
@@ -620,12 +620,27 @@ class WorkerFactory:
     ) -> Optional[Any]:
         """Helper function to get encode worker client if routing to encoder is enabled."""
         if config.route_to_encoder:
+            # Determine router mode for encode worker client
+            router_mode_str = os.getenv("DYN_ROUTER_MODE", "round-robin").lower()
+            router_mode = None  # None defaults to round-robin
+
+            if router_mode_str == "device-aware-weighted":
+                router_mode = RouterMode.DeviceAwareWeighted
+                logger.info(f"Using device-aware-weighted routing for encode workers")
+            elif router_mode_str == "power-of-two":
+                router_mode = RouterMode.PowerOfTwoChoices
+                logger.info(f"Using power-of-two-choices routing for encode workers")
+            elif router_mode_str == "random":
+                router_mode = RouterMode.Random
+                logger.info(f"Using random routing for encode workers")
+            else:
+                logger.info(f"Using round-robin routing for encode workers (default)")
+
             # [gluo NOTE] hardcoded component name
-            encode_worker_client = await runtime.endpoint(
-                f"{config.namespace}.encode.generate"
-            ).client()
+            encode_endpoint = runtime.endpoint(f"{config.namespace}.encode.generate")
+            encode_worker_client = await encode_endpoint.client(router_mode=router_mode)
             logger.info("Waiting for Encoder Worker Instances ...")
             await encode_worker_client.wait_for_instances()
-            logger.info("Connected to encode workers")
+            logger.info(f"Connected to encode workers with router_mode={router_mode_str}")
             return encode_worker_client
         return None
