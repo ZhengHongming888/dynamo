@@ -1,0 +1,2 @@
+/opt/sglang/python/sglang/benchmark/datasets/image.py:51: UserWarning: High resolution (1080x1920) with 512 total images may take a long time. Consider reducing resolution or image count.
+  return sample_image_requests(

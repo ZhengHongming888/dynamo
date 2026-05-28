@@ -1,0 +1,18 @@
+BENCHMARK SUMMARY - ALL RATES (32B FP8 1080p)
+Generated: Fri May 22 19:25:12 UTC 2026
+Configuration: 8 images at 1024x768, dynamic prompts (32@0.1, 64@0.25, 128@0.5, 256@1.0 QPS)
+
+=== Request Throughput & Latency ===
+Target_RPS   Actual_RPS   Success      Mean_E2E     Median_E2E   P99_E2E      Concurrency 
+--------------------------------------------------------------------------------------------
+1.0          0.10         64           1070.01      59.11        11924.50     565713.88   
+
+=== Time to First Token (TTFT) ===
+Target_RPS   Mean_TTFT    Median_TTFT  P99_TTFT    
+----------------------------------------------------
+1.0          354339.88    358740.12    541301.91   
+
+=== Time per Output Token (TPOT) ===
+Target_RPS   Mean_TPOT    Median_TPOT  P99_TPOT    
+----------------------------------------------------
+1.0          1361.64      1083.34      7074.30     

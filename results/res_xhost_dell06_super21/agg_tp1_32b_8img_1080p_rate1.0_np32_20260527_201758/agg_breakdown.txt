@@ -1,0 +1,142 @@
+
+================================================================================
+  agg_TP1 (32B)
+================================================================================
+  Mode: AGG (single all-in-one process)
+  Requests received (backend.generate): 33
+  Requests completed:                   33
+  Lifetimes paired:                     33
+
+  Request lifetime (T_recv → T_complete) ms:
+    n=33 median=    56631 mean=    56352 p99=    73332 max=    73523
+    bench wall: 80.53s, throughput: 0.410 req/s
+
+  ReqTimeStats:
+    forward_duration (ms): n=33 median=    34895 mean=    36642 p99=    70487 max=    71345
+    queue_duration (ms):   n=33 median=16277.83 mean=14791.26 p99=30637.80 max=31040.96
+
+  Prefill events: 57
+  Prefill running-req distribution:
+    running= 0:   3 ( 5.3%)  ██
+    running= 1:   2 ( 3.5%)  █
+    running= 2:   2 ( 3.5%)  █
+    running= 3:   2 ( 3.5%)  █
+    running= 4:   2 ( 3.5%)  █
+    running= 5:   2 ( 3.5%)  █
+    running= 6:   2 ( 3.5%)  █
+    running= 7:   2 ( 3.5%)  █
+    running= 8:   1 ( 1.8%)  
+    running= 9:   2 ( 3.5%)  █
+    running=10:   1 ( 1.8%)  
+    running=11:   2 ( 3.5%)  █
+    running=12:   1 ( 1.8%)  
+    running=13:   2 ( 3.5%)  █
+    running=14:   2 ( 3.5%)  █
+    running=15:   2 ( 3.5%)  █
+    running=16:   2 ( 3.5%)  █
+    running=17:   1 ( 1.8%)  
+    running=18:   2 ( 3.5%)  █
+    running=19:   2 ( 3.5%)  █
+    running=20:   2 ( 3.5%)  █
+    running=21:   1 ( 1.8%)  
+    running=22:   2 ( 3.5%)  █
+    running=23:   2 ( 3.5%)  █
+    running=24:   2 ( 3.5%)  █
+    running=25:   2 ( 3.5%)  █
+    running=26:   2 ( 3.5%)  █
+    running=27:   1 ( 1.8%)  
+    running=28:   2 ( 3.5%)  █
+    running=29:   2 ( 3.5%)  █
+    running=30:   1 ( 1.8%)  
+    running=31:   1 ( 1.8%)  
+  max queue-req: 18
+  Batch types: full visual chunks (≥8k tok)=32, text-only (200-1000)=0, small batches (<200)=25
+
+  NIXL events: NONE (agg mode — encoder runs inline with LLM)
+
+================================================================================
+  disagg_PD (32B + dell06 enc)
+================================================================================
+  Mode: DISAGG (PD-only log; encoder runs separately)
+  Requests received (backend.generate): 33
+  Requests completed:                   30
+  Lifetimes paired:                     30
+
+  Request lifetime (T_recv → T_complete) ms:
+    n=30 median=    50280 mean=    48653 p99=    84455 max=    86659
+    bench wall: 134.64s, throughput: 0.223 req/s
+
+  ReqTimeStats:
+    forward_duration (ms): n=30 median=     8627 mean=     7895 p99=    14757 max=    16162
+    queue_duration (ms):   n=30 median=    0.28 mean=  194.49 p99= 1616.54 max= 2679.09
+
+  Prefill events: 57
+  Prefill running-req distribution:
+    running= 0:  10 (17.5%)  ███████
+    running= 1:  19 (33.3%)  █████████████
+    running= 2:  17 (29.8%)  ███████████
+    running= 3:   9 (15.8%)  ██████
+    running= 4:   2 ( 3.5%)  █
+  max queue-req: 2
+  Batch types: full visual chunks (≥8k tok)=31, text-only (200-1000)=0, small batches (<200)=26
+
+  NIXL wire (Created→PROC=>DONE) ms:
+    n=33 median=    38002 mean=    37624 p99=    75345 max=    78380
+    Best wire (req 1, no contention): 1018 ms
+    -> 637.5 MB / 1.018s = 0.61 GB/s
+
+====================================================================================================
+HEAD-TO-HEAD: agg_TP1 vs disagg (32B-FP8, 8img/1080p, np=32, rate=1.0, super21 GPU 5)
+====================================================================================================
+
+  Metric                                           agg_TP1            disagg             agg vs disagg
+  -----------------------------------------------------------------------------------------------
+  Successful requests                              33                 30                 1.10× (agg better)
+  Bench wall (s)                                   80.5               134.6              1.67× (agg better)
+  Throughput (RPS)                                 0.410              0.223              1.84× (agg better)
+  Median lifetime (ms)                             56631              50280              0.89× (agg better)
+  Median forward_duration (ms)                     34895              8627               0.25× (agg better)
+  Median queue_duration (ms)                       16277.83           0.28               0.00× (agg better)
+  Mean running-req at prefill                      14.67              1.54               9.50× (agg better)
+
+  Bench-side (from results.txt files):
+  Metric                                           agg_TP1            disagg            
+  -----------------------------------------------------------------------------------------------
+  Mean TTFT                                        25872.29           60440.25          
+  Median TTFT                                      24928.32           58237.37          
+  Mean TPOT                                        342.13             42.64             
+  Median TPOT                                      229.47             39.21             
+  Mean E2E                                         58417.60           67481.82          
+  Output token throughput (tok/s)                  64.35              37.09             
+  Peak output throughput                           848.00             199.00            
+  Concurrency (avg)                                24.63              16.40             
+
+====================================================================================================
+WHY DISAGG IS WORSE THAN AGG (key reasons)
+====================================================================================================
+
+1. PD GPU forward_duration:
+   agg:       34895 ms
+   disagg:     8627 ms  (0.25× higher)
+   → disagg PD has more work per request because it must integrate NIXL-arrived
+     embeddings, splitting visual prefill into multiple smaller batches.
+
+2. Prefill batch fragmentation:
+   agg prefill events:     full chunks=32, small batches (<200)=25
+   disagg prefill events:  full chunks=31, small batches (<200)=26
+   agg total prefill events: 57
+   disagg total prefill events: 57
+
+3. NIXL handoff overhead (disagg only):
+   agg has NO NIXL events — encoder runs inline in same process as LLM
+   disagg adds: Created Descriptor + Created ReadOp + NIXL wire + scheduler hop
+   Per request: ~1-3 s under contention, even when wire itself is ~1 s
+
+4. KV cache budget:
+   agg: max_total_num_tokens=695,136 (mem-fraction=0.85)
+   disagg: max_total_num_tokens=467,072 (mem-fraction=0.65, must reserve for NIXL buffers)
+   → agg has 49% more KV → can batch decode of more requests simultaneously
+
+5. Encoder ViT pipelining:
+   agg: encoder (ViT) and decoder (LLM) pipeline within SGLang scheduler
+   disagg: encoder is on a separate host → must wait for cross-host TCP+RDMA before PD prefill

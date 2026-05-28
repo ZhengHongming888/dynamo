@@ -234,19 +234,21 @@ class MultimodalEncodeWorkerHandler(BaseWorkerHandler[SglangMultimodalRequest, s
                 uncached_urls.append(url)
 
         new_entries: dict[int, CachedEmbedding] = {}
-        # SGLang's _encode outputs are already on CPU; use CPU as target for consistency
-        target_device = torch.device("cpu")
+        # SGLang's MMEncoder._encode() does mm_embedding.cpu() at the end of the
+        # vision_encode step (sglang/srt/disaggregation/encode_server.py:1079),
+        # so the returned tensor is always on CPU. We skip the per-request
+        # device check + redundant .to('cpu') that previously ran here -- that
+        # check forced an XPU/CUDA stream sync on .device access for every
+        # request and was a no-op in practice. If the SGLang contract ever
+        # changes, the assertion below (debug builds only) will catch it.
         if uncached_urls:
             grid_dim, new_embeddings, _aux = await mm_encode(
                 self.encoder, uncached_urls, Modality.IMAGE
             )
-            # Verify SGLang output is on CPU as expected
-            if new_embeddings.device != target_device:
-                logger.warning(
-                    f"SGLang _encode returned embeddings on {new_embeddings.device}, "
-                    f"expected CPU. Moving to CPU."
-                )
-                new_embeddings = new_embeddings.to(target_device)
+            assert new_embeddings.device.type == "cpu", (
+                f"SGLang _encode returned embeddings on {new_embeddings.device}, "
+                f"expected CPU. SGLang contract changed -- restore the .to('cpu') fallback."
+            )
             grid_list: list = (
                 grid_dim.tolist() if isinstance(grid_dim, torch.Tensor) else grid_dim
             )
@@ -500,16 +502,38 @@ class MultimodalEncodeWorkerHandler(BaseWorkerHandler[SglangMultimodalRequest, s
                 group_offset += len(urls)
 
             if combined_embeddings_parts:
-                precomputed_embeddings = torch.cat(combined_embeddings_parts, dim=0)
+                # Avoid a redundant torch.cat memcpy when there is only one
+                # modality group (the common case: image-only requests). For
+                # the multi-modality case (image+video) we still need a cat
+                # to merge image+video embedding rows into a single tensor.
+                if len(combined_embeddings_parts) == 1:
+                    precomputed_embeddings = combined_embeddings_parts[0]
+                else:
+                    precomputed_embeddings = torch.cat(
+                        combined_embeddings_parts, dim=0
+                    )
+                # Make sure we hand a contiguous buffer to NIXL so the staged
+                # path is safe; .contiguous() is a no-op when the tensor is
+                # already contiguous (true for both fresh _encode output and
+                # torch.cat output), so this costs nothing in the fast path.
+                if not precomputed_embeddings.is_contiguous():
+                    precomputed_embeddings = precomputed_embeddings.contiguous()
                 request.embeddings_shape = tuple(precomputed_embeddings.shape)  # type: ignore[assignment]
                 request.transfer_payload = None
 
                 with _nvtx.annotate("mm:enc:embedding_transfer", color="purple"):
+                    # stage_embeddings=True tells the sender that the tensor
+                    # may be used directly as the NIXL transfer buffer. The
+                    # caller (this function) owns the tensor until
+                    # `transfer_future` is awaited below at line ~544, so
+                    # NIXL is free to read from it without cloning. This
+                    # eliminates the per-request `embeddings.clone().detach()`
+                    # CPU memcpy in NixlReadEmbeddingSender.send_embeddings.
                     (
                         transfer_request,
                         transfer_future,
                     ) = await self.embedding_sender.send_embeddings(
-                        precomputed_embeddings
+                        precomputed_embeddings, stage_embeddings=True
                     )
                     request.transfer_payload = transfer_request
                     logger.debug(f"Request: {request.model_dump_json()}")
@@ -537,8 +561,16 @@ class MultimodalEncodeWorkerHandler(BaseWorkerHandler[SglangMultimodalRequest, s
                     data.pop("text", None)
                 yield data
 
+            # Wait for embedding transfer to complete
             if transfer_future is not None:
                 await transfer_future
+
+            # Add a small grace period to allow the Rust runtime to complete
+            # ZMQ event publishing before this generator exits and closes the
+            # TCP stream. This prevents "Failed to publish complete final" errors
+            # in disaggregated encoder-PD mode.
+            # See: https://github.com/ai-dynamo/dynamo/issues/XXXXX
+            await asyncio.sleep(0.1)
 
         except Exception as e:
             logger.error(f"Error processing request: {e}")

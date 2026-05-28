@@ -1,0 +1,12 @@
+{
+    "object": "list",
+    "data": [
+        {
+            "id": "/mnt/weka/data/llm-d-models-pv/models--Qwen--Qwen3-VL-32B-Instruct-FP8",
+            "object": "model",
+            "created": 1779323499,
+            "owned_by": "nvidia",
+            "context_window": 262144
+        }
+    ]
+}

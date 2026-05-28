@@ -1,0 +1,55 @@
+--- /usr/local/lib/python3.12/dist-packages/dynamo/sglang/request_handlers/multimodal/encode_worker_handler.py.bak	2026-05-24 03:44:17.331205172 +0000
++++ /usr/local/lib/python3.12/dist-packages/dynamo/sglang/request_handlers/multimodal/encode_worker_handler.py	2026-05-24 05:30:55.924811416 +0000
+@@ -215,17 +215,20 @@
+                 uncached_urls.append(url)
+ 
+         new_entries: dict[int, CachedEmbedding] = {}
+-        # SGLang's _encode outputs are already on CPU; use CPU as target for consistency
+-        target_device = torch.device("cpu")
++        # PATCH: target the NIXL buffer device (GPU when available) instead of
++        # hardcoded CPU. For cross-host disagg with GPUDirect RDMA we want
++        # the embedding tensor on GPU before NIXL exposes it for read.
++        from dynamo.common.multimodal.embedding_transfer import _nixl_buffer_device
++        target_device = _nixl_buffer_device()
+         if uncached_urls:
+             grid_dim, new_embeddings, _aux = await mm_encode(
+                 self.encoder, uncached_urls, Modality.IMAGE
+             )
+-            # Verify SGLang output is on CPU as expected
++            # PATCH: move to target device (GPU when available) instead of forcing CPU
+             if new_embeddings.device != target_device:
+-                logger.warning(
++                logger.debug(
+                     f"SGLang _encode returned embeddings on {new_embeddings.device}, "
+-                    f"expected CPU. Moving to CPU."
++                    f"moving to {target_device} for NIXL transfer."
+                 )
+                 new_embeddings = new_embeddings.to(target_device)
+             grid_list: list = (
+@@ -345,6 +348,26 @@
+                         precomputed_embeddings,
+                         _aux,
+                     ) = await mm_encode(self.encoder, image_urls, Modality.IMAGE)
++                    # PATCH (non-cached path): mirror the GPU-target logic from
++                    # _encode_with_cache. Without this, when ENABLE_ENCODER_CACHE=0
++                    # / cache disabled, mm_encode's CPU output goes straight to
++                    # NIXL on CPU, defeating GPUDirect RDMA.
++                    from dynamo.common.multimodal.embedding_transfer import (
++                        _nixl_buffer_device,
++                    )
++                    _patch_target_device = _nixl_buffer_device()
++                    if (
++                        isinstance(precomputed_embeddings, torch.Tensor)
++                        and precomputed_embeddings.device != _patch_target_device
++                    ):
++                        logger.warning(
++                            f"PATCH(non-cached): moving embeddings from "
++                            f"{precomputed_embeddings.device} to "
++                            f"{_patch_target_device} for NIXL transfer."
++                        )
++                        precomputed_embeddings = precomputed_embeddings.to(
++                            _patch_target_device
++                        )
+ 
+             image_grid_thw_list = (
+                 image_grid_dim.tolist()

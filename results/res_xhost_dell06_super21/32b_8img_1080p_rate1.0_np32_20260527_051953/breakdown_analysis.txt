@@ -1,0 +1,103 @@
+================================================================================
+DETAILED TIME BREAKDOWN: super21-h200 (PD) + dell06-h200 (encoder)
+Workload: Qwen3-VL-32B-FP8, 8img/1080p, np=32, rate=1.0 RPS
+Time window: 2026-05-27T05:21:30 → 2026-05-27T05:24:00  (bench main)
+================================================================================
+
+## 1. End-to-end PD-side lifecycle (Rust ingress → Rust egress)
+   Complete (recv,done) pairs:  33
+   T7 - T0 (ms):  median=   64221.0  mean=   54535.9
+                  min=    6666.0    p99=   80606.1    max=   81182.6
+   bench wall-clock: 132.85s, observed throughput: 0.248 req/s
+
+## 2. NIXL READ transfer (cuda:0 ↔ cuda:0, GPUDirect RDMA over RoCE)
+   Total ReadOp creations:     33
+   Total ReadOp DONE events:   0
+   PROC state events:          2319
+   DONE state events:          33
+   Payload size:  637.5 MB  (16320 vis tokens × 20480 hidden × bf16)
+   Wire time (Created → next state=DONE), 33 pairs:
+     median: 33040.44 ms
+     mean:   34145.42 ms
+     min:     1059.66 ms
+     p95:    63606.44 ms
+     max:    67180.03 ms
+   Effective wire bandwidth (median):  0.02 GB/s
+   Wire bandwidth peak:                0.63 GB/s
+   (100Gb NDR RoCE theoretical:        12.5 GB/s)
+
+## 3. PD-side cuda:0 descriptor allocations (the GPUDirect patch in action)
+   Total cuda descriptors: 66 (2.0 per request)
+      637.5 MB: 66 descriptors  (~33 per request, 2 each: local & remote view)
+
+## 4. SGLang ReqTimeStats (PD scheduler internal view)
+   ReqTimeStats events: 33
+   queue_duration (PD scheduler queue, ms):
+     median:     0.32    mean:   489.06    p99:  4229.79    max:  4442.99
+   forward_duration (prefill + decode on H200, ms):
+     median:  10478.3    mean:  13662.2    p99:  39581.8    max:  44310.7
+   input_len:  median=16413  range=[16355, 16477]
+   output_len: median=164  range=[10, 255]
+
+## 5. PD Prefill batch events
+   Total prefill batches: 56
+   running-req at prefill (concurrent reqs on PD):
+     running= 0:   8 (14.3%)  █████
+     running= 1:   8 (14.3%)  █████
+     running= 2:   7 (12.5%)  █████
+     running= 3:  11 (19.6%)  ███████
+     running= 4:   3 ( 5.4%)  ██
+     running= 5:   5 ( 8.9%)  ███
+     running= 6:   2 ( 3.6%)  █
+     running= 7:   3 ( 5.4%)  ██
+     running= 8:   5 ( 8.9%)  ███
+     running= 9:   4 ( 7.1%)  ██
+   queue-req at prefill: median=0 max=3
+   batch type breakdown:
+     full visual chunks (≥8000 tok):  32
+     text-only prefill (200-1000):    0
+     small batches (embed-integ <200): 24
+
+## 6. PD-side inter-arrival pattern
+   inter-arrival time (s) over 32 deltas:
+     median:  1.443    mean:  1.774
+     min:     1.336    max:   9.853
+     p10:     1.352    p90:   1.638
+   Bench was sending at 1.0 RPS Poisson → expected median IAT = ~0.69s
+   Observed median IAT = 1.44s = system-paced (not Poisson-paced)
+   → Bench client back-pressured: requests in flight reach 32 concurrent quickly,
+     then arrive only as old ones complete.
+
+================================================================================
+## SYNTHESIS: where time goes per request (medians)
+================================================================================
+
+  Median PD-Rust lifetime (T_recv → T_done):     64221.0 ms
+
+  Component                                       ms      pct    bar (60-char)
+  ──────────────────────────────────────────────────────────────────────────────
+  NIXL READ wire (RDMA)                             33040.4   51.4%  ██████████████████████████████
+  Other (PD handler prep + egress)                  20702.0   32.2%  ███████████████████
+  PD GPU forward_duration (prefill+decode)          10478.3   16.3%  █████████
+  PD scheduler queue_duration                           0.3    0.0%  █
+
+────────────────────────────────────────────────────────────────────────────────
+  Throughput analysis at rate=1.0 (np=32):
+    Observed throughput:           0.26 RPS
+    PD GPU forward_duration:       10.48 s/req (median)
+    PD avg running-req:            3.59
+    PD effective concurrency × throughput: 3.59 × 0.095 = 0.343 req/s
+
+  Bottleneck identification:
+    [✓ FAST] Encoder + RoCE wire:  NIXL wire 33040.4 ms (51.45% of lifetime)
+    [✓ FAST] PD scheduler queue:   0.32 ms median (effectively empty)
+    [✓ FAST] Prefill backlog:      max queue-req=3
+    [⚠ SLOW] PD GPU forward:       10.5s/req — THE BOTTLENECK (16.3% of lifetime)
+
+  At rate=1.0 the PD H200 GPU is the binding constraint.
+  Most lifetime (16%) is spent prefilling 16k visual tokens & decoding 256 tokens.
+
+  Levers to raise saturation RPS further:
+    1. PD-TP=2 to halve forward_duration → ~0.5 RPS expected
+    2. Smaller per-request workload (4 imgs, or 768p) → ~1+ RPS
+    3. Smaller LLM (Qwen3-VL-7B) → 0.85+ RPS expected (per 35B reference)

@@ -1,0 +1,85 @@
+====================================================================================================
+FULL TIME BREAKDOWN: dell06 H200 (encoder) + super21 H200 GPU 5 (PD)
+Workload: Qwen3-VL-32B-Instruct-FP8, 8img/1080p, np=32, rate=1.0 RPS
+Window: 2026-05-27T19:31:30 → 2026-05-27T19:34:00
+Encoder log: /hongming/dynamo/01_cuda_sh/disagg_h200_32b/logs/encode_gpu4_to_dell06.log
+PD log:      /hongming/dynamo/01_cuda_sh/disagg_h200_32b/logs/pd_worker_giga01.log
+====================================================================================================
+
+## Event counts:
+  Encoder:  recv=33  patches=15  descriptors=33  complete=30
+  PD:       recv=33  proc_emb=33  desc=66  readop=33  PROC→DONE=33  rts=30  complete=30
+
+=============================================================================================================================
+PER-REQUEST FULL TIMELINE (first 8 requests, time in ms)
+=============================================================================================================================
+
+#   rid            T0_enc→    enc→pd   pd_setup  NIXL_setup      wire   forward+egress      TOTAL
+               (enc_phase)       TCP      T1-T0       T3-T2     T5-T3            T7-T5  T7-T0_enc
+-----------------------------------------------------------------------------------------------------------------------------
+1   58d40919        1551.8      74.2       5.38 8.992999995825812    1017.9             5861       8446
+4   ab91a82e        3813.2    1508.1     500.00 0.937999997404404    2113.0            10693      17120
+5   47f40c50        2684.3      84.1    2882.01 5.205000008572824   10505.9            19957      36035
+7   8b3271e4        2933.8    1513.3     960.56 2.6990000042133033   11785.8            16405      32089
+8   6b6d6e39        2148.4    1582.4     172.53 0.9229999996023253   13243.1            14333      29898
+
+## Aggregate stats over 30 fully-traceable requests:
+  Encoder phase (T0_enc→T0_pd) ms     n= 30 median=   9231.2 mean=   8845.6 min=   1551.8 p99=  17912.0 max=  18436.8
+  NIXL wire RDMA (T3→T5) ms           n= 30 median=  32382.6 mean=  33876.3 min=   1017.9 p99=  67781.1 max=  71026.1
+  PD forward+egress (T5→T7) ms        n= 30 median=  14050.7 mean=  13043.9 min=   5861.3 p99=  19956.9 max=  20451.8
+  TOTAL E2E (T0_enc→T7) ms            n= 30 median=  58244.0 mean=  57498.4 min=   8446.0 p99= 102891.7 max= 103710.0
+
+## Encoder side details:
+  Encoder recv→PATCH (ViT) ms         n= 15 median=   1322.4 mean=   2286.4 min=     95.6 p99=   2766.1 max=  18352.2
+
+## SGLang ReqTimeStats:
+  forward_duration ms:   median=8627 mean=7895 max=16162
+  queue_duration ms:     median=0.28 mean=194.49 max=2679.09
+
+## PD prefill concurrency (57 events):
+  running= 0:  10 (17.5%)  ███████
+  running= 1:  19 (33.3%)  █████████████
+  running= 2:  17 (29.8%)  ███████████
+  running= 3:   9 (15.8%)  ██████
+  running= 4:   2 ( 3.5%)  █
+  max queue-req: 2
+
+====================================================================================================
+SYNTHESIS: where time goes per request
+====================================================================================================
+
+Median request E2E (encoder T0 → PD complete):      58244 ms (58.2 s)
+
+Phase breakdown:
+
+  ┌─ Encoder side (dell06):       9231 ms (15.8% of E2E)
+  │   Encoder T_patch event (≈ ViT done): 1322 ms after T0_enc
+  │   Includes: encoder ingress + ViT compute + cpu→cuda copy + NIXL register + TCP→PD
+  │
+  └─ PD side (super21 GPU 5):      46433 ms (79.7% of E2E)
+      ├─ NIXL wire RDMA pull:                32383 ms (55.6% of E2E)
+      ├─ PD scheduler queue:                  0.28 ms (0.0005% of E2E)
+      ├─ PD GPU forward:                      8627 ms (14.8% of E2E)
+      └─ PD egress + sched hop:              5423 ms (9.3% of E2E)
+
+====================================================================================================
+BOTTLENECK IDENTIFICATION (sorted by contribution)
+====================================================================================================
+
+  NIXL wire RDMA (cuda:0 ↔ cuda:0)                             32383 ms   55.6%  █████████████████████████████████
+  Encoder phase (dell06 ViT + CPU→GPU + NIXL register + TCP)       9231 ms   15.8%  █████████
+  PD GPU forward (prefill + decode)                             8627 ms   14.8%  ████████
+  PD egress + scheduler hop                                     5423 ms    9.3%  █████
+  PD scheduler queue                                               0 ms    0.0%  █
+
+## Throughput math:
+  Bench throughput observed:      0.24 RPS
+  PD avg running-req:             1.54
+  Theoretical PD ceiling:         0.179 RPS  (= avg_running / forward_duration)
+  Theoretical encoder ceiling:    0.108 RPS  (= 1 / encoder phase per req)
+
+## NIXL wire effective bandwidth:
+  Median wire time 32383 ms for 637.5 MB → 0.02 GB/s
+  Best wire time   1018 ms → 0.61 GB/s
+  100Gb NDR theoretical max: 12.5 GB/s
+

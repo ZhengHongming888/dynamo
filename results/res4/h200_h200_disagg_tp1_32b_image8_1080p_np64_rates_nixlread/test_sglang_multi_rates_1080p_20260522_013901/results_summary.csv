@@ -1,0 +1,2 @@
+target_rate,actual_rps,successful_requests,duration_s,mean_ttft_ms,median_ttft_ms,p99_ttft_ms,mean_tpot_ms,median_tpot_ms,p99_tpot_ms,mean_itl_ms,median_itl_ms,p95_itl_ms,p99_itl_ms,max_itl_ms,mean_e2e_ms,median_e2e_ms,p90_e2e_ms,p99_e2e_ms,input_throughput_toks,output_throughput_toks,peak_output_throughput_toks,concurrency
+1.0,0.20,64,315.84,178057.31,181906.24,247303.67,1390.00,651.55,16151.13,677.14,39.03,2378.99,6453.61,189412.65,255024.03,257551.79,292319.17,309333.76,3326.05,23.66,722.00,51.68

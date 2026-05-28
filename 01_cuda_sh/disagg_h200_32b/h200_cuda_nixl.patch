@@ -1,0 +1,108 @@
+# H200 (CUDA) PD-side NIXL embedding-receive patch
+#
+# Date:        2026-05-24
+# Host:        sc09super21-h200 (giga01)
+# Backend:     dynamo.sglang multimodal-worker (PD)
+# Target:     /opt/venv/lib/python3.12/site-packages/dynamo/common/multimodal/embedding_transfer.py
+# Companion:  B70_PATCH_INSTRUCTIONS.md (encoder side, separate)
+#
+# Purpose
+# -------
+# By default, dynamo's NIXL-based multimodal embedding receiver allocates its
+# receive descriptors with `torch.zeros(...)` and no `device=` kwarg, which
+# defaults to CPU memory. That defeats GPUDirect RDMA: even with the wire
+# transfer being RDMA-capable, the NIC writes into host memory and the PD
+# then has to do a separate CPU->GPU staging copy before each prefill.
+#
+# This patch threads `device=_nixl_buffer_device()` through both descriptor
+# allocation paths (the warmed-up pool init at ~line 882 and the on-demand
+# fallback at ~line 915). `_nixl_buffer_device()` is the helper already
+# defined at lines 33-45 of the same file; it returns `cuda` (or `xpu` on
+# Intel hosts) when available, falling back to CPU.
+#
+# Effect
+# ------
+#   ReadOperation(local_descriptors=..., device=cuda:0,
+#                 remote_descriptors=..., device=cuda:0|xpu:0)
+#                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#                 Both ends GPU; full GPUDirect RDMA path.
+#
+# Caveats / pre-reqs
+# ------------------
+# 1. The companion encoder-side patch (B70_PATCH_INSTRUCTIONS.md / Patch C)
+#    must also be applied on the encoder host AND the env var
+#    NIXL_USE_CPU_HOST_MEMORY must NOT be set to 1 (it forces fallback to
+#    CPU regardless of code).
+# 2. mem-fraction-static must leave room for in-flight NIXL receive buffers
+#    on the PD GPU. With this patch, each in-flight 8img/1080p request takes
+#    ~640 MB of GPU memory for its NIXL buffer. We've seen mem-fraction=0.92
+#    OOM under load; mem-fraction=0.65 is a safer baseline. See
+#    `round5_patch_results.md` for the OOM analysis.
+# 3. The structural Round 4/5 fix (a coordinated GPU NIXL pool with
+#    `mem-fraction-static` accounting for NIXL allocations) is still missing
+#    upstream. This patch is a quick fix that depends on careful operator
+#    sizing.
+#
+# Apply
+# -----
+#   cd /opt/venv/lib/python3.12/site-packages/dynamo/common/multimodal/
+#   cp embedding_transfer.py embedding_transfer.py.bak
+#   patch -p0 < /hongming/dynamo/01_cuda_sh/disagg_h200_32b/h200_cuda_nixl.patch
+#   # restart the dynamo.sglang multimodal-worker so the new module is loaded
+#
+# Or, equivalently:
+#   patch /opt/venv/lib/python3.12/site-packages/dynamo/common/multimodal/embedding_transfer.py \
+#         < /hongming/dynamo/01_cuda_sh/disagg_h200_32b/h200_cuda_nixl.patch
+#
+# Verify
+# ------
+#   diff /opt/venv/lib/python3.12/site-packages/dynamo/common/multimodal/embedding_transfer.py.bak \
+#        /opt/venv/lib/python3.12/site-packages/dynamo/common/multimodal/embedding_transfer.py
+#   # should show exactly the two hunks below
+#
+#   python3 -c "import dynamo.common.multimodal.embedding_transfer; print('OK')"
+#   # should print OK with no traceback
+#
+# Once a request flows through, on giga01 PD log:
+#   grep "ReadOperation: Created" pd_worker_giga01.log | grep "device=cuda:0"
+#   # should show every transfer with local_descriptors=device=cuda:0
+#
+# Revert
+# ------
+#   cp /opt/venv/lib/python3.12/site-packages/dynamo/common/multimodal/embedding_transfer.py.bak \
+#      /opt/venv/lib/python3.12/site-packages/dynamo/common/multimodal/embedding_transfer.py
+#   # restart dynamo.sglang multimodal-worker
+#
+# ==============================================================================
+
+--- a/dynamo/common/multimodal/embedding_transfer.py
++++ b/dynamo/common/multimodal/embedding_transfer.py
+@@ -879,8 +879,12 @@
+         connection = run_async(self.connector._create_connection)
+         # Create descriptor for our allocated tensor
+         for _ in range(max_items):
++            # PATCH: allocate on GPU when available so NIXL can do GPUDirect RDMA
++            # (was: torch.zeros(...) without device kwarg -> defaulted to CPU)
+             encodings_tensor = torch.zeros(
+-                max_item_mm_token * embedding_hidden_size, dtype=torch.int8
++                max_item_mm_token * embedding_hidden_size,
++                dtype=torch.int8,
++                device=_nixl_buffer_device(),
+             )
+             descriptor = nixl_connect.Descriptor(encodings_tensor)
+             descriptor.register_with_connector(connection)
+@@ -912,7 +916,13 @@
+             logger.debug(
+                 "No warmed up descriptors available, creating a temporary one for transfer."
+             )
+-            encodings_tensor = torch.zeros(*embeddings_shape, dtype=embeddings_dtype)
++            # PATCH: allocate on GPU when available so NIXL can do GPUDirect RDMA
++            # (was: torch.zeros(*embeddings_shape, dtype=embeddings_dtype) -> defaulted to CPU)
++            encodings_tensor = torch.zeros(
++                *embeddings_shape,
++                dtype=embeddings_dtype,
++                device=_nixl_buffer_device(),
++            )
+             descriptor = nixl_connect.Descriptor(encodings_tensor)
+             dynamic_descriptor = True
+         else:

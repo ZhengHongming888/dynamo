@@ -1,0 +1,54 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+benchmark_args=Namespace(backend='sglang-oai-chat', base_url='http://localhost:7001', host='0.0.0.0', port=None, ready_check_timeout_sec=60, dataset_name='image', dataset_path='', model='Qwen/Qwen2.5-VL-3B-Instruct', served_model_name=None, tokenizer=None, num_prompts=32, sharegpt_output_len=None, sharegpt_context_len=None, random_input_len=128, random_output_len=128, random_range_ratio=0.0, image_count=8, image_resolution='640x480', random_image_count=False, image_format='jpeg', image_content='random', request_rate=3.0, use_trace_timestamps=False, max_concurrency=None, output_file='/hongming/test_sglang_multi_rates_20260513_073934/rate_3.0/benchmark_output.json', output_details=False, print_requests=False, disable_tqdm=False, disable_stream=False, return_logprob=False, top_logprobs_num=0, token_ids_logprob=None, logprob_start_len=-1, return_routed_experts=False, seed=0, disable_ignore_eos=False, extra_request_body=None, apply_chat_template=False, profile=False, plot_throughput=False, profile_activities=['CPU', 'GPU'], profile_start_step=None, profile_steps=None, profile_num_steps=None, profile_by_stage=False, profile_stages=None, profile_output_dir=None, profile_prefix=None, lora_name=None, lora_request_distribution='uniform', lora_zipf_alpha=1.5, prompt_suffix='', pd_separated=False, profile_prefill_url=None, profile_decode_url=None, flush_cache=False, warmup_requests=1, tokenize_prompt=False, gsp_num_groups=64, gsp_prompts_per_group=16, gsp_system_prompt_len=2048, gsp_question_len=128, gsp_output_len=256, gsp_range_ratio=1.0, gsp_fast_prepare=False, gsp_send_routing_key=False, gsp_num_turns=1, gsp_ordered=False, mooncake_slowdown_factor=1.0, mooncake_num_rounds=1, mooncake_workload='conversation', fake_prefill=False, tag=None, header=None)
+Waiting up to 60s for http://localhost:7001/v1/models to become ready...
+Server ready in 0.0s.
+Namespace(backend='sglang-oai-chat', base_url='http://localhost:7001', host='0.0.0.0', port=30000, ready_check_timeout_sec=60, dataset_name='image', dataset_path='', model='Qwen/Qwen2.5-VL-3B-Instruct', served_model_name=None, tokenizer=None, num_prompts=32, sharegpt_output_len=None, sharegpt_context_len=None, random_input_len=128, random_output_len=128, random_range_ratio=0.0, image_count=8, image_resolution='640x480', random_image_count=False, image_format='jpeg', image_content='random', request_rate=3.0, use_trace_timestamps=False, max_concurrency=None, output_file='/hongming/test_sglang_multi_rates_20260513_073934/rate_3.0/benchmark_output.json', output_details=False, print_requests=False, disable_tqdm=False, disable_stream=False, return_logprob=False, top_logprobs_num=0, token_ids_logprob=None, logprob_start_len=-1, return_routed_experts=False, seed=0, disable_ignore_eos=False, extra_request_body=None, apply_chat_template=True, profile=False, plot_throughput=False, profile_activities=['CPU', 'GPU'], profile_start_step=None, profile_steps=None, profile_num_steps=None, profile_by_stage=False, profile_stages=None, profile_output_dir=None, profile_prefix=None, lora_name=None, lora_request_distribution='uniform', lora_zipf_alpha=1.5, prompt_suffix='', pd_separated=False, profile_prefill_url=None, profile_decode_url=None, flush_cache=False, warmup_requests=1, tokenize_prompt=False, gsp_num_groups=64, gsp_prompts_per_group=16, gsp_system_prompt_len=2048, gsp_question_len=128, gsp_output_len=256, gsp_range_ratio=1.0, gsp_fast_prepare=False, gsp_send_routing_key=False, gsp_num_turns=1, gsp_ordered=False, mooncake_slowdown_factor=1.0, mooncake_num_rounds=1, mooncake_workload='conversation', fake_prefill=False, tag=None, header=None)
+
+#Input tokens: 103432
+#Output tokens: 2196
+#Total images: 256
+#Images per request: 8 (fixed)
+
+Created 32 random jpeg images with average 2479003 bytes per request
+Starting warmup with 1 sequences...
+Warmup completed with 1 sequences. Starting main benchmark run...
+  0%|          | 0/32 [00:00<?, ?it/s]  3%|▎         | 1/32 [00:01<00:39,  1.29s/it]  6%|▋         | 2/32 [00:01<00:21,  1.40it/s]  9%|▉         | 3/32 [00:02<00:16,  1.71it/s] 12%|█▎        | 4/32 [00:02<00:11,  2.34it/s] 16%|█▌        | 5/32 [00:17<02:35,  5.77s/it] 31%|███▏      | 10/32 [00:17<00:36,  1.64s/it] 41%|████      | 13/32 [00:17<00:19,  1.03s/it] 47%|████▋     | 15/32 [00:17<00:13,  1.29it/s] 53%|█████▎    | 17/32 [00:18<00:08,  1.70it/s] 59%|█████▉    | 19/32 [00:18<00:06,  2.00it/s] 75%|███████▌  | 24/32 [00:18<00:02,  3.81it/s] 81%|████████▏ | 26/32 [00:18<00:01,  4.52it/s] 91%|█████████ | 29/32 [00:19<00:00,  6.12it/s] 97%|█████████▋| 31/32 [00:19<00:00,  6.70it/s]100%|██████████| 32/32 [00:19<00:00,  1.66it/s]
+
+============ Serving Benchmark Result ============
+Backend:                                 sglang-oai-chat
+Traffic request rate:                    3.0       
+Max request concurrency:                 not set   
+Successful requests:                     32        
+Benchmark duration (s):                  19.31     
+Total input tokens:                      103432    
+Total input text tokens:                 2824      
+Total input vision tokens:               100608    
+Total generated tokens:                  2196      
+Total generated tokens (retokenized):    2140      
+Request throughput (req/s):              1.66      
+Input token throughput (tok/s):          5356.56   
+Output token throughput (tok/s):         113.73    
+Peak output token throughput (tok/s):    808.00    
+Peak concurrent requests:                28        
+Total token throughput (tok/s):          5470.28   
+Concurrency:                             18.43     
+----------------End-to-End Latency----------------
+Mean E2E Latency (ms):                   11121.73  
+Median E2E Latency (ms):                 12028.66  
+P90 E2E Latency (ms):                    15595.23  
+P99 E2E Latency (ms):                    16789.96  
+---------------Time to First Token----------------
+Mean TTFT (ms):                          9895.95   
+Median TTFT (ms):                        10670.05  
+P99 TTFT (ms):                           15474.28  
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          19.30     
+Median TPOT (ms):                        3.73      
+P99 TPOT (ms):                           169.80    
+---------------Inter-Token Latency----------------
+Mean ITL (ms):                           18.84     
+Median ITL (ms):                         2.64      
+P95 ITL (ms):                            6.62      
+P99 ITL (ms):                            46.22     
+Max ITL (ms):                            5501.10   
+==================================================

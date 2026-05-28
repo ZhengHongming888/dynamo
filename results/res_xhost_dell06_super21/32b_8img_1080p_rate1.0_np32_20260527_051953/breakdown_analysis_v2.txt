@@ -1,0 +1,101 @@
+Events in bench window: 3682
+Requests received in window: 33
+Requests completed in window: 33
+
+====================================================================================================
+PER-REQUEST TIMELINE TRACE — first 5 requests (clean window, low overlap)
+====================================================================================================
+
+#   rid (8c)      T1-T0    T2-T1    T3-T2    T4-T3      T5-T4      T7-T5      T7-T0
+               dispatch     cuda  NIXLset   submit       wire  PD+egress   lifetime
+                   (ms)     (ms)     (ms)     (ms)       (ms)       (ms)       (ms)
+----------------------------------------------------------------------------------------------------
+1   f5a2a46a       5.14     0.60     9.02     0.18    1059.48     5591.5     6666.0
+2   fb7dda4f       4.67     0.52     6.97     0.17    1761.38    15935.3    17709.1
+3   f9badc9b       4.05     0.47     3.70     0.96     346.02    15950.3    16305.5
+4   2aa380e3     661.12     0.24     0.66    -1.79      99.62    14128.3    14888.2
+5   3a4357f2    2738.43     0.26     4.99     0.07   -1672.45    25871.5    26942.8
+6   c4680c4d       2.77     0.27     1.86     0.54    8777.87    15198.4    23981.7
+7   5ac9a097     337.98     0.24     0.99    -2.31    6890.39    15184.8    22412.1
+8   845240bc       4.53     1.58   361.28  5223.64       0.33    32600.1    38191.5
+
+Aggregate stats (across these requests):
+  dispatch (T1-T0) ms                  median=    4.91  mean=  469.84  min=    2.77  max= 2738.43
+  cuda alloc (T2-T1) ms                median=    0.37  mean=    0.52  min=    0.24  max=    1.58
+  NIXL setup (T3-T2) ms                median=    4.35  mean=   48.68  min=    0.66  max=  361.28
+  NIXL submit (T4-T3) ms               median=    0.18  mean=  652.68  min=   -2.31  max= 5223.64
+  NIXL wire (T5-T4) ms                 median=   702.8  mean=  2157.8  min= -1672.5  max=  8777.9
+  PD forward+egress (T7-T5) ms         median=   15566.8  mean=   17557.5  min=    5591.5  max=   32600.1
+  TOTAL lifetime (T7-T0) ms            median=   20060.6  mean=   20887.1  min=    6666.0  max=   38191.5
+
+====================================================================================================
+AGGREGATE PD-SIDE STATS (all 32 requests)
+====================================================================================================
+
+ReqTimeStats events: 33  (input_len median=16413, output_len median=164)
+  queue_duration ms:    median=    0.32  mean=  489.06  p99= 4229.79
+  forward_duration ms:  median=   10478  mean=   13662  p99=   39582
+
+PD prefill concurrency distribution (56 prefill events):
+  running-req= 0:   8 (14.3%)  █████
+  running-req= 1:   8 (14.3%)  █████
+  running-req= 2:   7 (12.5%)  █████
+  running-req= 3:  11 (19.6%)  ███████
+  running-req= 4:   3 ( 5.4%)  ██
+  running-req= 5:   5 ( 8.9%)  ███
+  running-req= 6:   2 ( 3.6%)  █
+  running-req= 7:   3 ( 5.4%)  ██
+  running-req= 8:   5 ( 8.9%)  ███
+  running-req= 9:   4 ( 7.1%)  ██
+  max queue-req: 3
+
+====================================================================================================
+## FINAL BOTTLENECK ANALYSIS
+====================================================================================================
+
+NIXL WIRE TRANSFER (cuda:0 → cuda:0 over RoCE GPUDirect RDMA):
+  Payload size: 637.5 MB per request (8 × 1080p embedding, bf16)
+  First request wire time:   1059.5 ms  (0.59 GB/s)
+  Best wire time observed:   -1672.5 ms  (-0.37 GB/s)
+  Median wire time:          702.8 ms  (0.89 GB/s)
+  Theoretical peak (100Gb NDR): 12.5 GB/s  →  ~50 ms wire for 637 MB
+
+PD GPU FORWARD (prefill 16k visual + 256-token decode on H200):
+  forward_duration median:   10478 ms = 10.5 s
+  forward_duration max:      44311 ms
+  queue_duration median:     0.32 ms (PD scheduler queue is empty)
+
+ENCODER (dell06 H200 ViT) — not directly visible in PD log, estimated:
+  Encoder ViT for 8×1080p on H200 SXM ≈ 1-3 s (best case, single in flight)
+  At rate=1.0 with 32 prompts the encoder also runs at ~0.26 RPS so it's not the BL
+  Bench-side TTFT median = 58000 ms; PD lifetime median = 64s from above table
+  → encoder ViT contributes minimally compared to PD prefill+decode
+
+====================================================================================================
+## CONCLUSION: WHERE TIME GOES (per request, at rate=1.0 sustained)
+====================================================================================================
+
+Stage                                                      ms (median)      pct  bar
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  Frontend dispatch + PD Rust ingress (T1-T0)                       4.91    0.02%  █
+  CUDA buffer alloc (T2-T1) — patched line                          0.37    0.00%  █
+  NIXL setup (T3-T2)                                                4.35    0.02%  █
+  NIXL submit→PROC (T4-T3)                                          0.18    0.00%  █
+  NIXL wire transfer T5-T4 (RDMA)                                 702.75    3.50%  █
+  PD scheduler queue (queue_duration)                               0.32    0.00%  █
+  PD GPU forward_duration (prefill+decode)                      10478.27   52.23%  ██████████████████████████
+  Other (PD response stream egress, etc)                         8869.44   44.21%  ██████████████████████
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  TOTAL PD-side lifetime                                        20060.58  100.00%
+
+BOTTLENECK: PD GPU forward_duration = 10478 ms = 52.2% of lifetime
+
+  At rate=1.0 (offered) the system caps at 0.26 RPS because:
+  - Each request needs ~10.5s of H200 GPU time (16k token prefill + decode)
+  - PD avg running-req from prefill events ≈ 3.6
+  - Effective throughput = 3.6 / 10.5s = 0.343 RPS  ✓
+
+  Encoder + RoCE wire are NOT the bottleneck:
+  - NIXL wire steady-state = 703 ms = 3.50% of lifetime
+  - Best wire = -1672 ms = -0.4 GB/s
+

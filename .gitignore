@@ -142,3 +142,9 @@ package-lock.json
 # macOS
 .DS_Store
 **/.DS_Store
+
+# Local secret-bearing helper scripts (never commit)
+/p.sh
+/claude.sh
+/o.sh
+/cuda_image.sh
