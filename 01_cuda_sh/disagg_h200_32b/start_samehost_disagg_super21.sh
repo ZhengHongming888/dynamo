@@ -44,12 +44,9 @@ export DYN_HTTP_BODY_LIMIT_MB=256
 export UCX_NIC=mlx5_0:1
 
 # Mem fraction — both encoder and PD have a full 143 GB H200 each
-# Encoder lowered to 0.65 to leave headroom for cuda_ipc activation overflow on GPU 0
-# (PD's NIXL receive buffers are imported via cuda_ipc and downstream torch.empty
-#  calls that inherit device=cuda:0 land back on encoder's GPU; this caused OOM
-#  in the prior np=32 bench at MEM_FRAC_ENC=0.85)
+# (Patches reverted: NIXL receive on CPU, no cuda_ipc memory contention)
 export MEM_FRAC_PD=0.85
-export MEM_FRAC_ENC=0.65
+export MEM_FRAC_ENC=0.85
 
 LOG_DIR="$(pwd)/logs"
 mkdir -p "$LOG_DIR"
@@ -113,7 +110,7 @@ VLLM_NIXL_SIDE_CHANNEL_PORT=${SIDE_CHANNEL_PORT_PD} \
 UCX_TLS=cuda_ipc,ib,rc,ud,rc_verbs,ud_verbs,cuda_copy \
 UCX_NET_DEVICES=${UCX_NIC} \
 UCX_MEMTYPE_CACHE=0 \
-DYN_SGL_EMBEDDING_TRANSFER_MODE=nixl-read \
+DYN_SGL_EMBEDDING_TRANSFER_MODE=nixl-write \
 ENABLE_ENCODER_CACHE=0 \
 NCCL_DEBUG=INFO \
 NCCL_DEBUG_SUBSYS=INIT,P2P \
@@ -160,7 +157,7 @@ UCX_NET_DEVICES=${UCX_NIC} \
 UCX_MEMTYPE_CACHE=0 \
 NIXL_MAX_BUFFER_SIZE=805306368 \
 NIXL_BUFFER_COUNT=256 \
-DYN_SGL_EMBEDDING_TRANSFER_MODE=nixl-read \
+DYN_SGL_EMBEDDING_TRANSFER_MODE=nixl-write \
 ENABLE_ENCODER_CACHE=0 \
 ZMQ_SNDHWM=0 \
 ZMQ_RCVHWM=0 \

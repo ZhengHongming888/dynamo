@@ -23,7 +23,7 @@ set -e
 # ========================================
 
 # Remote H200 server (NATS / etcd / frontend / P / D)
-export IP_REMOTE=172.26.46.75   # giga01 / sc09super21-h200 (mgmt IP)
+export IP_REMOTE=${IP_REMOTE:-172.26.46.75}   # giga01 / sc09super21-h200 (mgmt IP) -- override via env
 export PORT_NATS=14222
 export PORT_ETCD=12379
 
@@ -114,6 +114,13 @@ launch_encoder() {
     echo ""
     echo "Starting Intel B70 XPU Encode Worker $N (XPU=$XPU, NIC=$NIC, IP=$IPL)..."
 
+    # Optional: pass --mm-attention-backend if MM_ATTN_BACKEND is set
+    # (e.g. MM_ATTN_BACKEND=xpu_attn to use the PR 26460 path)
+    local MM_ATTN_FLAG=""
+    if [ -n "${MM_ATTN_BACKEND:-}" ]; then
+        MM_ATTN_FLAG="--mm-attention-backend ${MM_ATTN_BACKEND}"
+    fi
+
     ZE_AFFINITY_MASK=$XPU \
     NATS_SERVER=nats://${IP_REMOTE}:${PORT_NATS} \
     ETCD_ENDPOINTS=http://${IP_REMOTE}:${PORT_ETCD} \
@@ -141,8 +148,9 @@ launch_encoder() {
         --chat-template qwen2-vl \
         --dtype auto \
         --kv-cache-dtype auto \
-        --mem-fraction-static 0.5 \
+        --mem-fraction-static ${MEM_FRACTION_STATIC:-0.5} \
         --page-size 16 \
+        ${MM_ATTN_FLAG} \
         --kv-events-config '{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:'"$KVP"'","enable_kv_cache_events":true}' \
         2>&1 | tee -a "$LOG" &
     local PID=$!
